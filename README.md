@@ -1,56 +1,48 @@
-# Dip Buyer — deep-dip-only cbBTC bot
+# Dip Buyer — variant C
 
-A long-only dip buyer for the make.fun 24-hour BTC race
-(`btc-race-24h-20261115-0828`). It trades one asset, cbBTC against USDC,
-starting from 1,000 USDC of paper money.
+A deep-dip-only bot for the 24-hour cbBTC race (`btc-race-24h-20261115-0828`).
 
-## How it works
+## Idea
 
-The bot spends most of the window in cash. It only buys after a real
-washout: the price must fall hard off its recent high — 2% off the 120-bar
-high, or 1.2% off the 30-bar high while under the slow EMA — and then show
-a confirmed bounce above its recent low and above the previous close.
-Thresholds are floored by the live round-trip cost and by current
-volatility, so it never chases a dip smaller than the cost of trading it.
+Most bars do nothing. The bot waits for a real washout — price far below its
+recent high, with a bounce already starting — then buys one leg worth 45% of
+equity and manages the exit: a hard stop at −2.5%, a trailing pullback once
+the rebound turns into a trend, and a patience exit when a trade goes stale.
+There is no averaging down: the second-leg code is present but gated off, so
+a falling knife never gets a second buy. Entries are rare by design; the bot
+would rather sit in cash than chase chop.
 
-Once in, it manages the position three ways: a hard stop 2.5% below the
-average entry; a 3% take-profit (or a trend ride — if the profit clears
-the take and the trend is genuinely up, it switches to trend mode and
-exits on a trailing pullback instead); and a stale-hold exit after 180
-bars without progress. A circuit breaker halts new entries forever once
-equity drops 12% below its peak. There is deliberately no averaging
-down — the second leg is switched off, so a falling position is cut,
-never fed.
+## What differs from variant D
 
-## Tuned numbers
+Variant D (already submitted) uses a 3% take-profit and a 180-bar patience
+limit. Variant C changes exactly two numbers:
 
-- EMAs: fast 18, slow 120; warmup 18 bars
-- Deep dip 2.0% off the 120-bar high; shallow dip 1.2% off the 30-bar high
-- Take profit 3.0%; base trailing pullback 0.25%; hard stop 2.5%
-- Stale-hold patience 180 bars; cooldown 30 bars after an exit
-- First leg 45% of equity; second leg OFF
-- Trend needs a fast-over-slow gap above 0.1%, price above the fast EMA,
-  a rising fast EMA and path efficiency above 0.45
-- Max slippage 200 bps on every order
+- take-profit: **4%** instead of 3%
+- patience: **240 bars** instead of 180
 
-## Run it locally
+Everything else — thresholds, EMA spans, volatility handling, trailing,
+cooldown, halt — is identical. In simulation the wider take and longer
+patience leave variant C positive on **both** dev windows (about +$6.30 on
+the new window, about +$0.55 on the old one), while variant D is positive
+only on the new window.
 
-From inside the unpacked kit directory:
+## Grade-local
 
-```sh
-node cli/makefun.mjs grade-local --kit . --bot /path/to/this/repo --driver process
-```
+Run with the kit's process driver (`node cli/makefun.mjs grade-local
+--kit . --bot <workdir> --driver process`), two executions each, L1 regrade
+reproduced byte for byte.
 
-The entrypoint is `main.ts` (Node 22, standard library only plus the
-`vendor/makefun-bars.ts` shim). The bot is fully deterministic: no clock,
-no randomness, no network.
+New dev window (`btc-race-24h-20261115-0828`, 1440 bars): net PnL
+**+6.303071 USDC**, 6 trades, win rate 0.6667, max drawdown 0.019041,
+fees 1.078726 USDC (at 2x fees +5.223073), 0 rejected, guardrails met.
+action_log_sha256
+`a9d8a621b115c3694c0a9d4b1717d4a60a0dc90c941a26fdd2318d513ccdf6ae`.
 
-## Dev-gate result
+Old window (`btc-race-24h-20261113-2314`, sanity check): net PnL
+**+0.546080 USDC**, 4 trades, win rate 0.5000, max drawdown 0.009692,
+fees 0.719823 USDC (at 2x fees −0.173661), 0 rejected, guardrails met.
+action_log_sha256
+`75d657d94e4deca33c1f7c09880c1313390a90bea3be396941c9b3cbcd060aca`.
 
-Grade-local on the dev window (kit's `grade-local`, process driver,
-two executions, L1 regrade reproduced byte for byte):
-
-- Net PnL **+10.672012 USDC** (return 0.010672012) — above the $0 dev gate
-- 6 trades, win rate 0.667, max drawdown 1.467%, exposure 0.153
-- Fees 1.083649 USDC; net PnL at 2x fees still +9.585115 USDC
-- Guardrails met (trades ok, symbols ok, drawdown ok), 0 rejected
+Dev gate (net PnL > $0 on the new window): **PASSED**. Positive on both
+windows, as the simulation predicted (+$6.30 / +$0.55).
